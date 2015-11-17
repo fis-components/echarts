@@ -7,7 +7,6 @@
  */
 
 
-var ComponentBase = require('../component/base');
 var ChartBase = require('./base');
 var eventRiverLayout = require('../layout/eventRiver');
 // 图形依赖
@@ -17,6 +16,34 @@ require('../component/axis');
 require('../component/grid');
 require('../component/dataZoom');
 var ecConfig = require('../config');
+// 事件河流图默认参数
+ecConfig.eventRiver = {
+    zlevel: 0,
+    // 一级层叠
+    z: 2,
+    // 二级层叠
+    clickable: true,
+    legendHoverLink: true,
+    itemStyle: {
+        normal: {
+            // color: 各异,
+            borderColor: 'rgba(0,0,0,0)',
+            borderWidth: 1,
+            label: {
+                show: true,
+                position: 'inside',
+                // 可选为'left'|'right'|'top'|'bottom'
+                formatter: '{b}'    // textStyle: null      // 默认使用全局文本样式，详见TEXTSTYLE
+            }
+        },
+        emphasis: {
+            // color: 各异,
+            borderColor: 'rgba(0,0,0,0)',
+            borderWidth: 1,
+            label: { show: true }
+        }
+    }
+};
 var ecData = require('../util/ecData');
 var ecDate = require('../util/date');
 var zrUtil = require('zrender/tool/util');
@@ -29,10 +56,8 @@ var zrColor = require('zrender/tool/color');
      * @param {Object} component 组件
      */
 function EventRiver(ecTheme, messageCenter, zr, option, myChart) {
-    // 基类
-    ComponentBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     // 图表基类
-    ChartBase.call(this);
+    ChartBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     var self = this;
     self._ondragend = function () {
         self.isDragend = true;
@@ -79,8 +104,8 @@ EventRiver.prototype = {
         for (var i = 0, iLen = series.length; i < iLen; i++) {
             if (series[i].type === this.type) {
                 xAxis = this.component.xAxis.getAxis(series[i].xAxisIndex || 0);
-                for (var j = 0, jLen = series[i].eventList.length; j < jLen; j++) {
-                    evolutionList = series[i].eventList[j].evolution;
+                for (var j = 0, jLen = series[i].data.length; j < jLen; j++) {
+                    evolutionList = series[i].data[j].evolution;
                     for (var k = 0, kLen = evolutionList.length; k < kLen; k++) {
                         evolutionList[k].timeScale = xAxis.getCoord(ecDate.getNewDate(evolutionList[k].time) - 0);
                         // evolutionList[k].valueScale = evolutionList[k].value;
@@ -101,8 +126,8 @@ EventRiver.prototype = {
         for (var i = 0; i < series.length; i++) {
             var serieName = series[i].name || '';
             if (series[i].type === this.type && this.selectedMap[serieName]) {
-                for (var j = 0; j < series[i].eventList.length; j++) {
-                    this._drawEventBubble(series[i].eventList[j], i, j);
+                for (var j = 0; j < series[i].data.length; j++) {
+                    this._drawEventBubble(series[i].data[j], i, j);
                 }
             }
         }
@@ -114,7 +139,7 @@ EventRiver.prototype = {
         var series = this.series;
         var serie = series[seriesIndex];
         var serieName = serie.name || '';
-        var data = serie.eventList[dataIndex];
+        var data = serie.data[dataIndex];
         var queryTarget = [
             data,
             serie
@@ -128,7 +153,8 @@ EventRiver.prototype = {
         var emphasisColor = this.getItemStyleColor(emphasis.color, seriesIndex, dataIndex, data) || (typeof normalColor === 'string' ? zrColor.lift(normalColor, -0.2) : normalColor);
         var pts = this._calculateControlPoints(oneEvent);
         var eventBubbleShape = {
-            zlevel: this._zlevelBase,
+            zlevel: serie.zlevel,
+            z: serie.z,
             clickable: this.deepQuery(queryTarget, 'clickable'),
             style: {
                 pointList: pts,
@@ -149,7 +175,7 @@ EventRiver.prototype = {
         };
         eventBubbleShape = new PolygonShape(eventBubbleShape);
         this.addLabel(eventBubbleShape, serie, data, oneEvent.name);
-        ecData.pack(eventBubbleShape, series[seriesIndex], seriesIndex, series[seriesIndex].eventList[dataIndex], dataIndex, series[seriesIndex].eventList[dataIndex].name);
+        ecData.pack(eventBubbleShape, series[seriesIndex], seriesIndex, series[seriesIndex].data[dataIndex], dataIndex, series[seriesIndex].data[dataIndex].name);
         this.shapeList.push(eventBubbleShape);
     },
     /**
@@ -238,7 +264,6 @@ EventRiver.prototype = {
     }
 };
 zrUtil.inherits(EventRiver, ChartBase);
-zrUtil.inherits(EventRiver, ComponentBase);
 // 图表注册
 require('../chart').define('eventRiver', EventRiver);
 module.exports = EventRiver || module.exports;;

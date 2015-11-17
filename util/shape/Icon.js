@@ -254,9 +254,10 @@ function _iconStackChart(ctx, style) {
     var width = style.width;
     var height = style.height;
     var dy = Math.round(height / 3);
+    var delta = Math.round((dy - 2) / 2);
     var len = 3;
     while (len--) {
-        ctx.rect(x, y + dy * len + 2, width, 2);
+        ctx.rect(x, y + dy * len + delta, width, 2);
     }
 }
 function _iconTiledChart(ctx, style) {
@@ -265,9 +266,10 @@ function _iconTiledChart(ctx, style) {
     var width = style.width;
     var height = style.height;
     var dx = Math.round(width / 3);
+    var delta = Math.round((dx - 2) / 2);
     var len = 3;
     while (len--) {
-        ctx.rect(x + dx * len, y, 2, height);
+        ctx.rect(x + dx * len + delta, y, 2, height);
     }
 }
 function _iconDataView(ctx, style) {
@@ -505,12 +507,12 @@ Icon.prototype = {
             x: Math.round(style.x),
             y: Math.round(style.y - (style.iconType == 'pin' ? style.height / 2 * 1.5 : 0)),
             width: style.width,
-            height: style.height
+            height: style.height * (style.iconType === 'pin' ? 1.25 : 1)
         };
         return style.__rect;
     },
     isCover: function (x, y) {
-        var originPos = this.getTansform(x, y);
+        var originPos = this.transformCoordToLocal(x, y);
         x = originPos[0];
         y = originPos[1];
         // 快速预判并保留判断矩形
@@ -520,12 +522,7 @@ Icon.prototype = {
         }
         // 提高交互体验，太小的图形包围盒四向扩大4px
         var delta = rect.height < 8 || rect.width < 8 ? 4 : 0;
-        if (x >= rect.x - delta && x <= rect.x + rect.width + delta && y >= rect.y - delta && y <= rect.y + rect.height + delta) {
-            // 矩形内
-            return true;
-        } else {
-            return false;
-        }
+        return x >= rect.x - delta && x <= rect.x + rect.width + delta && y >= rect.y - delta && y <= rect.y + rect.height + delta;
     }
 };
 zrUtil.inherits(Icon, Base);

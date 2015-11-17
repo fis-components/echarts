@@ -15,6 +15,70 @@ var PolygonShape = require('zrender/shape/Polygon');
 var Circle = require('zrender/shape/Circle');
 var Ring = require('zrender/shape/Ring');
 var ecConfig = require('../config');
+ecConfig.polar = {
+    zlevel: 0,
+    // 一级层叠
+    z: 0,
+    // 二级层叠
+    center: [
+        '50%',
+        '50%'
+    ],
+    // 默认全局居中
+    radius: '75%',
+    startAngle: 90,
+    boundaryGap: [
+        0,
+        0
+    ],
+    // 数值起始和结束两端空白策略
+    splitNumber: 5,
+    name: {
+        show: true,
+        // formatter: null,
+        textStyle: {
+            // 其余属性默认使用全局文本样式，详见TEXTSTYLE
+            color: '#333'
+        }
+    },
+    axisLine: {
+        // 坐标轴线
+        show: true,
+        // 默认显示，属性show控制显示与否
+        lineStyle: {
+            // 属性lineStyle控制线条样式
+            color: '#ccc',
+            width: 1,
+            type: 'solid'
+        }
+    },
+    axisLabel: {
+        // 坐标轴文本标签，详见axis.axisLabel
+        show: false,
+        // formatter: null,
+        textStyle: {
+            // 其余属性默认使用全局文本样式，详见TEXTSTYLE
+            color: '#333'
+        }
+    },
+    splitArea: {
+        show: true,
+        areaStyle: {
+            color: [
+                'rgba(250,250,250,0.3)',
+                'rgba(200,200,200,0.3)'
+            ]
+        }
+    },
+    splitLine: {
+        show: true,
+        lineStyle: {
+            width: 1,
+            color: '#ccc'
+        }
+    },
+    type: 'polygon'    // indicator: []
+};
 var zrUtil = require('zrender/tool/util');
 var ecCoordinates = require('../util/coordinates');
 function Polar(ecTheme, messageCenter, zr, option, myChart) {
@@ -123,8 +187,18 @@ Polar.prototype = {
                 this.option
             ], 'axisLabel');
             if (axisLabel.show) {
+                var textStyle = this.deepQuery([
+                    axisLabel,
+                    item,
+                    this.option
+                ], 'textStyle');
+                var formatter = this.deepQuery([
+                    axisLabel,
+                    item
+                ], 'formatter');
                 style = {};
-                style.textFont = this.getFont();
+                style.textFont = this.getFont(textStyle);
+                style.color = textStyle.color;
                 style = zrUtil.merge(style, axisLabel);
                 style.lineWidth = style.width;
                 vector = __ecIndicator[i].vector;
@@ -138,11 +212,19 @@ Polar.prototype = {
                 for (var j = 1; j <= splitNumber; j += interval + 1) {
                     newStyle = zrUtil.merge({}, style);
                     text = accMath.accAdd(value.min, accMath.accMul(value.step, j));
-                    newStyle.text = this.numAddCommas(text);
+                    if (typeof formatter === 'function') {
+                        text = formatter(text);
+                    } else if (typeof formatter === 'string') {
+                        text = formatter.replace('{a}', '{a0}').replace('{a0}', text);
+                    } else {
+                        text = this.numAddCommas(text);
+                    }
+                    newStyle.text = text;
                     newStyle.x = j * vector[0] / splitNumber + Math.cos(theta) * offset + center[0];
                     newStyle.y = j * vector[1] / splitNumber + Math.sin(theta) * offset + center[1];
                     this.shapeList.push(new TextShape({
-                        zlevel: this._zlevelBase,
+                        zlevel: this.getZlevelBase(),
+                        z: this.getZBase(),
                         style: newStyle,
                         draggable: false,
                         hoverable: false
@@ -202,8 +284,8 @@ Polar.prototype = {
             } else {
                 textAlign = 'center';
             }
-            if (!name.margin) {
-                vector = this._mapVector(vector, center, 1.2);
+            if (name.margin == null) {
+                vector = this._mapVector(vector, center, 1.1);
             } else {
                 margin = name.margin;
                 x = vector[0] > 0 ? margin : -margin;
@@ -229,7 +311,8 @@ Polar.prototype = {
                 ];
             }
             this.shapeList.push(new TextShape({
-                zlevel: this._zlevelBase,
+                zlevel: this.getZlevelBase(),
+                z: this.getZBase(),
                 style: style,
                 draggable: false,
                 hoverable: false,
@@ -243,7 +326,7 @@ Polar.prototype = {
     /**
          * 添加一个隐形的盒子 当做drop的容器 暴露给外部的图形类使用
          * @param {number} polar的index
-         * @return {Object} 添加的盒子图形 
+         * @return {Object} 添加的盒子图形
          */
     getDropBox: function (index) {
         var index = index || 0;
@@ -313,7 +396,8 @@ Polar.prototype = {
     _getCircle: function (strokeColor, lineWidth, scale, center, brushType, color) {
         var radius = this._getRadius();
         return new Circle({
-            zlevel: this._zlevelBase,
+            zlevel: this.getZlevelBase(),
+            z: this.getZBase(),
             style: {
                 x: center[0],
                 y: center[1],
@@ -339,7 +423,8 @@ Polar.prototype = {
     _getRing: function (color, scale0, scale1, center) {
         var radius = this._getRadius();
         return new Ring({
-            zlevel: this._zlevelBase,
+            zlevel: this.getZlevelBase(),
+            z: this.getZBase(),
             style: {
                 x: center[0],
                 y: center[1],
@@ -381,7 +466,8 @@ Polar.prototype = {
          */
     _getShape: function (pointList, brushType, color, strokeColor, lineWidth) {
         return new PolygonShape({
-            zlevel: this._zlevelBase,
+            zlevel: this.getZlevelBase(),
+            z: this.getZBase(),
             style: {
                 pointList: pointList,
                 brushType: brushType,
@@ -454,12 +540,12 @@ Polar.prototype = {
     },
     /**
          * 绘制从中点出发的线
-         * 
+         *
          * @param {Array<Object>} 指标对象
          * @param {Array<number>} 中点坐标
          * @param {string} 线条颜色
          * @param {number} 线条宽度
-         * @param {string} 线条绘制类型 
+         * @param {string} 线条绘制类型
          *              solid | dotted | dashed 实线 | 点线 | 虚线
          */
     _addLine: function (__ecIndicator, center, axisLine) {
@@ -476,7 +562,7 @@ Polar.prototype = {
             this.shapeList.push(line);
         }
     },
-    /** 
+    /**
          * 获取线条对象
          * @param {number} 出发点横坐标
          * @param {number} 出发点纵坐标
@@ -490,7 +576,8 @@ Polar.prototype = {
          */
     _getLine: function (xStart, yStart, xEnd, yEnd, strokeColor, lineWidth, lineType) {
         return new LineShape({
-            zlevel: this._zlevelBase,
+            zlevel: this.getZlevelBase(),
+            z: this.getZBase(),
             style: {
                 xStart: xStart,
                 yStart: yStart,
@@ -518,11 +605,16 @@ Polar.prototype = {
         var boundaryGap = item.boundaryGap;
         var splitNumber = item.splitNumber;
         var scale = item.scale;
+        var opts;
         var smartSteps = require('../util/smartSteps');
         for (var i = 0; i < len; i++) {
             if (typeof indicator[i].max == 'number') {
                 max = indicator[i].max;
                 min = indicator[i].min || 0;
+                opts = {
+                    max: max,
+                    min: min
+                };
             } else {
                 var value = this._findValue(data, i, splitNumber, boundaryGap);
                 min = value.min;
@@ -536,7 +628,7 @@ Polar.prototype = {
             if (!scale && min <= 0 && max <= 0) {
                 max = 0;
             }
-            var stepOpt = smartSteps(min, max, splitNumber);
+            var stepOpt = smartSteps(min, max, splitNumber, opts);
             __ecIndicator[i].value = {
                 min: stepOpt.min,
                 max: stepOpt.max,
@@ -578,8 +670,8 @@ Polar.prototype = {
          * 查找指标合适的值
          *
          * 如果只有一组数据以数据中的最大值作为最大值 0为最小值
-         * 如果是多组，使用同一维度的进行比较 选出最大值最小值 
-         * 对它们进行处理  
+         * 如果是多组，使用同一维度的进行比较 选出最大值最小值
+         * 对它们进行处理
          * @param {Object} serie 的 data
          * @param {number} index 指标的序号
          * @param {number} splitNumber 分段格式
@@ -588,7 +680,6 @@ Polar.prototype = {
     _findValue: function (data, index, splitNumber, boundaryGap) {
         var max;
         var min;
-        var value;
         var one;
         if (!data || data.length === 0) {
             return;
@@ -602,13 +693,12 @@ Polar.prototype = {
         }
         if (data.length != 1) {
             for (var i = 0; i < data.length; i++) {
-                value = typeof data[i].value[index].value != 'undefined' ? data[i].value[index].value : data[i].value[index];
-                _compare(value);
+                _compare(this.getDataFromOption(data[i].value[index]));
             }
         } else {
             one = data[0];
             for (var i = 0; i < one.value.length; i++) {
-                _compare(typeof one.value[i].value != 'undefined' ? one.value[i].value : one.value[i]);
+                _compare(this.getDataFromOption(one.value[i]));
             }
         }
         var gap = Math.abs(max - min);
@@ -634,7 +724,7 @@ Polar.prototype = {
     /**
          * 获取每个指标上某个value对应的坐标
          * @param {number} polarIndex
-         * @param {number} indicatorIndex 
+         * @param {number} indicatorIndex
          * @param {number} value
          * @return {Array<number>} 对应坐标
          */
@@ -688,7 +778,7 @@ Polar.prototype = {
          * 如果一个点在网内，返回离它最近的数据轴的index
          * @param {Array<number>} 坐标
          * @return {Object} | false
-         *      polarIndex 
+         *      polarIndex
          *      valueIndex
          */
     getNearestIndex: function (vector) {
@@ -734,7 +824,7 @@ Polar.prototype = {
         }
     },
     /**
-         * 获取指标信息 
+         * 获取指标信息
          * @param {number} polarIndex
          * @return {Array<Object>} indicator
          */

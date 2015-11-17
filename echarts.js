@@ -1,9 +1,9 @@
 /*!
  * ECharts, a javascript interactive chart library.
- *  
- * Copyright (c) 2014, Baidu Inc.
+ *
+ * Copyright (c) 2015, Baidu Inc.
  * All rights reserved.
- * 
+ *
  * LICENSE
  * https://github.com/ecomfe/echarts/blob/master/LICENSE.txt
  */
@@ -25,15 +25,15 @@ var _idBase = new Date() - 0;
 var _instances = {};
 // ECharts实例map索引
 var DOM_ATTRIBUTE_KEY = '_echarts_instance_';
-self.version = '2.1.10';
-self.dependencies = { zrender: '2.0.6' };
+self.version = '2.2.7';
+self.dependencies = { zrender: '2.1.1' };
 /**
-     * 入口方法 
+     * 入口方法
      */
 self.init = function (dom, theme) {
     var zrender = require('zrender');
-    if ((zrender.version || '1.0.3').replace('.', '') - 0 < self.dependencies.zrender.replace('.', '') - 0) {
-        console.error('ZRender ' + (zrender.version || '1.0.3-') + ' is too old for ECharts ' + self.version + '. Current version need ZRender ' + self.dependencies.zrender + '+');
+    if (zrender.version.replace('.', '') - 0 < self.dependencies.zrender.replace('.', '') - 0) {
+        console.error('ZRender ' + zrender.version + ' is too old for ECharts ' + self.version + '. Current version need ZRender ' + self.dependencies.zrender + '+');
     }
     dom = dom instanceof Array ? dom[0] : dom;
     // dom与echarts实例映射索引
@@ -53,7 +53,7 @@ self.init = function (dom, theme) {
     return _instances[key];
 };
 /**
-     * 通过id获得ECharts实例，id可在实例化后读取 
+     * 通过id获得ECharts实例，id可在实例化后读取
      */
 self.getInstanceById = function (key) {
     return _instances[key];
@@ -70,7 +70,12 @@ zrUtil.merge(MessageCenter.prototype, zrEvent.Dispatcher.prototype, true);
      * @param {HtmlElement} dom 必要
      */
 function Echarts(dom) {
-    this._themeConfig = zrUtil.clone(ecConfig);
+    // Fxxk IE11 for breaking initialization without a warrant;
+    // Just set something to let it be!
+    // by kener 2015-01-09
+    dom.innerHTML = '';
+    this._themeConfig = {};
+    // zrUtil.clone(ecConfig);
     this.dom = dom;
     // this._zr;
     // this._option;                    // curOption clone
@@ -100,7 +105,7 @@ function Echarts(dom) {
 }
 /**
      * ZRender EVENT
-     * 
+     *
      * @inner
      * @const
      * @type {Object}
@@ -108,7 +113,7 @@ function Echarts(dom) {
 var ZR_EVENT = require('zrender/config').EVENT;
 /**
      * 要绑定监听的zrender事件列表
-     * 
+     *
      * @const
      * @inner
      * @type {Array}
@@ -129,7 +134,7 @@ var ZR_EVENT_LISTENS = [
      * 对echarts的实例中的chartList属性成员，逐个进行方法调用，遍历顺序为逆序
      * 由于在事件触发的默认行为处理中，多次用到相同逻辑，所以抽象了该方法
      * 由于所有的调用场景里，最多只有两个参数，基于性能和体积考虑，这里就不使用call或者apply了
-     * 
+     *
      * @inner
      * @param {ECharts} ecInstance ECharts实例
      * @param {string} methodName 要调用的方法名
@@ -161,14 +166,19 @@ Echarts.prototype = {
             eventPackage.type = type;
             eventPackage.event = event;
             self._messageCenter.dispatchWithContext(type, eventPackage, that);
-            if (type != 'HOVER' && type != 'MOUSEOUT') {
-                // 频繁事件直接抛出
-                setTimeout(function () {
-                    self._messageCenterOutSide.dispatchWithContext(type, eventPackage, that);
-                }, 50);
-            } else {
-                self._messageCenterOutSide.dispatchWithContext(type, eventPackage, that);
-            }
+            self._messageCenterOutSide.dispatchWithContext(type, eventPackage, that);    // 如下注掉的代码，@see: https://github.com/ecomfe/echarts-discuss/issues/3
+                                                                                         // if (type != 'HOVER' && type != 'MOUSEOUT') {    // 频繁事件直接抛出
+                                                                                         //     setTimeout(function(){
+                                                                                         //         self._messageCenterOutSide.dispatchWithContext(
+                                                                                         //             type, eventPackage, that
+                                                                                         //         );
+                                                                                         //     },50);
+                                                                                         // }
+                                                                                         // else {
+                                                                                         //     self._messageCenterOutSide.dispatchWithContext(
+                                                                                         //         type, eventPackage, that
+                                                                                         //     );
+                                                                                         // }
         };
         this._onevent = function (param) {
             return self.__onevent(param);
@@ -212,7 +222,7 @@ Echarts.prototype = {
         }
     },
     /**
-         * ECharts事件处理中心 
+         * ECharts事件处理中心
          */
     __onevent: function (param) {
         param.__echartsId = param.__echartsId || this.id;
@@ -414,7 +424,7 @@ Echarts.prototype = {
         }
     },
     /**
-         * 数据区域缩放响应 
+         * 数据区域缩放响应
          */
     _ondataZoom: function (param) {
         // 用于图表间通信
@@ -425,7 +435,7 @@ Echarts.prototype = {
         }
     },
     /**
-         * 值域漫游响应 
+         * 值域漫游响应
          */
     _ondataRange: function (param) {
         this._clearEffect();
@@ -434,18 +444,18 @@ Echarts.prototype = {
         callChartListMethodReverse(this, 'ondataRange', param, this._status);
         // 没有相互影响，直接刷新即可
         if (this._status.needRefresh) {
-            this._zr.refresh();
+            this._zr.refreshNextFrame();
         }
     },
     /**
-         * 动态类型切换响应 
+         * 动态类型切换响应
          */
     _onmagicTypeChanged: function () {
         this._clearEffect();
         this._render(this._toolbox.getMagicOption());
     },
     /**
-         * 数据视图修改响应 
+         * 数据视图修改响应
          */
     _ondataViewChanged: function (param) {
         this._syncBackupData(param.option);
@@ -453,20 +463,20 @@ Echarts.prototype = {
         this._messageCenter.dispatch(ecConfig.EVENT.REFRESH, null, null, this);
     },
     /**
-         * tooltip与图表间通信 
+         * tooltip与图表间通信
          */
     _tooltipHover: function (param) {
         var tipShape = [];
         callChartListMethodReverse(this, 'ontooltipHover', param, tipShape);
     },
     /**
-         * 还原 
+         * 还原
          */
     _onrestore: function () {
         this.restore();
     },
     /**
-         * 刷新 
+         * 刷新
          */
     _onrefresh: function (param) {
         this._refreshInside = true;
@@ -474,7 +484,7 @@ Echarts.prototype = {
         this._refreshInside = false;
     },
     /**
-         * 数据修改后的反向同步dataZoom持有的备份数据 
+         * 数据修改后的反向同步dataZoom持有的备份数据
          */
     _syncBackupData: function (curOption) {
         this.component.dataZoom && this.component.dataZoom.syncBackupData(curOption);
@@ -500,11 +510,30 @@ Echarts.prototype = {
         }
         return;
     },
+    _noDataCheck: function (magicOption) {
+        var series = magicOption.series;
+        for (var i = 0, l = series.length; i < l; i++) {
+            if (series[i].type == ecConfig.CHART_TYPE_MAP || series[i].data && series[i].data.length > 0 || series[i].markPoint && series[i].markPoint.data && series[i].markPoint.data.length > 0 || series[i].markLine && series[i].markLine.data && series[i].markLine.data.length > 0 || series[i].nodes && series[i].nodes.length > 0 || series[i].links && series[i].links.length > 0 || series[i].matrix && series[i].matrix.length > 0 || series[i].eventList && series[i].eventList.length > 0) {
+                return false;    // 存在任意数据则为非空数据
+            }
+        }
+        var loadOption = this._option && this._option.noDataLoadingOption || this._themeConfig.noDataLoadingOption || ecConfig.noDataLoadingOption || {
+            text: this._option && this._option.noDataText || this._themeConfig.noDataText || ecConfig.noDataText,
+            effect: this._option && this._option.noDataEffect || this._themeConfig.noDataEffect || ecConfig.noDataEffect
+        };
+        // 空数据
+        this.clear();
+        this.showLoading(loadOption);
+        return true;
+    },
     /**
-         * 图表渲染 
+         * 图表渲染
          */
     _render: function (magicOption) {
         this._mergeGlobalConifg(magicOption);
+        if (this._noDataCheck(magicOption)) {
+            return;
+        }
         var bgColor = magicOption.backgroundColor;
         if (bgColor) {
             if (!_canvasSupported && bgColor.indexOf('rgba') != -1) {
@@ -627,7 +656,7 @@ Echarts.prototype = {
         this._option = magicOption;
     },
     /**
-         * 还原 
+         * 还原
          */
     restore: function () {
         this._clearEffect();
@@ -638,8 +667,8 @@ Echarts.prototype = {
         this._render(this._option);
     },
     /**
-         * 刷新 
-         * @param {Object=} param，可选参数，用于附带option，内部同步用，外部不建议带入数据修改，无法同步 
+         * 刷新
+         * @param {Object=} param，可选参数，用于附带option，内部同步用，外部不建议带入数据修改，无法同步
          */
     refresh: function (param) {
         this._clearEffect();
@@ -686,7 +715,7 @@ Echarts.prototype = {
         this._chartList = [];
     },
     /**
-         * 非图表全局属性merge~~ 
+         * 非图表全局属性merge~~
          */
     _mergeGlobalConifg: function (magicOption) {
         var mergeList = [
@@ -703,6 +732,7 @@ Echarts.prototype = {
             'animation',
             'animationThreshold',
             'animationDuration',
+            'animationDurationUpdate',
             'animationEasing',
             'addDataAnimation',
             // 默认标志图形类型列表
@@ -714,23 +744,23 @@ Echarts.prototype = {
         while (len--) {
             var mergeItem = mergeList[len];
             if (magicOption[mergeItem] == null) {
-                magicOption[mergeItem] = this._themeConfig[mergeItem];
+                magicOption[mergeItem] = this._themeConfig[mergeItem] != null ? this._themeConfig[mergeItem] : ecConfig[mergeItem];
             }
         }
         // 数值系列的颜色列表，不传则采用内置颜色，可配数组，借用zrender实例注入，会有冲突风险，先这样
         var themeColor = magicOption.color;
         if (!(themeColor && themeColor.length)) {
-            themeColor = this._themeConfig.color;
-        }
-        if (!_canvasSupported) {
-            // 不支持Canvas的强制关闭动画
-            magicOption.animation = false;
-            magicOption.addDataAnimation = false;
+            themeColor = this._themeConfig.color || ecConfig.color;
         }
         this._zr.getColor = function (idx) {
             var zrColor = require('zrender/tool/color');
             return zrColor.getColor(idx, themeColor);
         };
+        if (!_canvasSupported) {
+            // 不支持Canvas的强制关闭动画
+            magicOption.animation = false;
+            magicOption.addDataAnimation = false;
+        }
     },
     /**
          * 万能接口，配置图表实例任何可配置选项，多次调用时option选项做merge处理
@@ -750,12 +780,16 @@ Echarts.prototype = {
          * @param {Object} option
          * @param {boolean=} notMerge 多次调用时option选项是默认是合并（merge）的，
          *                   如果不需求，可以通过notMerger参数为true阻止与上次option的合并
+         * @param {boolean=} 默认false。keepTimeLine 表示从timeline组件调用而来，
+         *                   表示当前行为是timeline的数据切换，保持timeline，
+         *                   反之销毁timeline。 详见Issue #1601
          */
-    _setOption: function (option, notMerge) {
+    _setOption: function (option, notMerge, keepTimeLine) {
         if (!notMerge && this._option) {
             this._option = zrUtil.merge(this.getOption(), zrUtil.clone(option), true);
         } else {
             this._option = zrUtil.clone(option);
+            !keepTimeLine && this._timeline && this._timeline.dispose();
         }
         this._optionRestore = zrUtil.clone(this._option);
         if (!this._option.series || this._option.series.length === 0) {
@@ -771,7 +805,7 @@ Echarts.prototype = {
         return this;
     },
     /**
-         * 返回内部持有的当前显示option克隆 
+         * 返回内部持有的当前显示option克隆
          */
     getOption: function () {
         var magicOption = zrUtil.clone(this._option);
@@ -813,7 +847,7 @@ Echarts.prototype = {
         return this;
     },
     /**
-         * 返回内部持有的当前显示series克隆 
+         * 返回内部持有的当前显示series克隆
          */
     getSeries: function () {
         return this.getOption().series;
@@ -850,6 +884,7 @@ Echarts.prototype = {
         //this._optionRestore 和 magicOption 都要同步
         var magicOption = this.getOption();
         var optionRestore = this._optionRestore;
+        var self = this;
         for (var i = 0, l = params.length; i < l; i++) {
             seriesIdx = params[i][0];
             data = params[i][1];
@@ -916,16 +951,23 @@ Echarts.prototype = {
         }
         this._zr.clearAnimation();
         var chartList = this._chartList;
+        var chartAnimationCount = 0;
+        var chartAnimationDone = function () {
+            chartAnimationCount--;
+            if (chartAnimationCount === 0) {
+                animationDone();
+            }
+        };
         for (var i = 0, l = chartList.length; i < l; i++) {
             if (magicOption.addDataAnimation && chartList[i].addDataAnimation) {
-                chartList[i].addDataAnimation(params);
+                chartAnimationCount++;
+                chartList[i].addDataAnimation(params, chartAnimationDone);
             }
         }
         // dataZoom同步数据
         this.component.dataZoom && this.component.dataZoom.syncOption(magicOption);
         this._option = magicOption;
-        var self = this;
-        setTimeout(function () {
+        function animationDone() {
             if (!self._zr) {
                 return;    // 已经被释放
             }
@@ -935,7 +977,10 @@ Echarts.prototype = {
                 chartList[i].motionlessOnce = magicOption.addDataAnimation && chartList[i].addDataAnimation;
             }
             self._messageCenter.dispatch(ecConfig.EVENT.REFRESH, null, { option: magicOption }, self);
-        }, magicOption.addDataAnimation ? 500 : 0);
+        }
+        if (!magicOption.addDataAnimation) {
+            setTimeout(animationDone, 0);
+        }
         return this;
     },
     /**
@@ -1020,13 +1065,13 @@ Echarts.prototype = {
         return this;
     },
     /**
-         * 获取当前dom 
+         * 获取当前dom
          */
     getDom: function () {
         return this.dom;
     },
     /**
-         * 获取当前zrender实例，可用于添加额为的shape和深度控制 
+         * 获取当前zrender实例，可用于添加额为的shape和深度控制
          */
     getZrender: function () {
         return this._zr;
@@ -1173,7 +1218,7 @@ Echarts.prototype = {
         return this;
     },
     /**
-         * 多图联动 
+         * 多图联动
          * @param connectTarget{ECharts | Array <ECharts>} connectTarget 联动目标
          */
     connect: function (connectTarget) {
@@ -1193,7 +1238,7 @@ Echarts.prototype = {
         return this;
     },
     /**
-         * 解除多图联动 
+         * 解除多图联动
          * @param connectTarget{ECharts | Array <ECharts>} connectTarget 解除联动目标
          */
     disConnect: function (connectTarget) {
@@ -1215,7 +1260,7 @@ Echarts.prototype = {
         return this;
     },
     /**
-         * 联动事件响应 
+         * 联动事件响应
          */
     connectedEventHandler: function (param) {
         if (param.__echartsId != this.id) {
@@ -1224,13 +1269,13 @@ Echarts.prototype = {
         }
     },
     /**
-         * 是否存在多图联动 
+         * 是否存在多图联动
          */
     isConnected: function () {
         return !!this._connected;
     },
     /**
-         * 显示loading过渡 
+         * 显示loading过渡
          * @param {Object} loadingOption
          */
     showLoading: function (loadingOption) {
@@ -1246,9 +1291,9 @@ Echarts.prototype = {
         loadingOption = loadingOption || {};
         var textStyle = loadingOption.textStyle || {};
         loadingOption.textStyle = textStyle;
-        var finalTextStyle = zrUtil.merge(zrUtil.clone(textStyle), this._themeConfig.textStyle);
+        var finalTextStyle = zrUtil.merge(zrUtil.merge(zrUtil.clone(textStyle), this._themeConfig.textStyle), ecConfig.textStyle);
         textStyle.textFont = finalTextStyle.fontStyle + ' ' + finalTextStyle.fontWeight + ' ' + finalTextStyle.fontSize + 'px ' + finalTextStyle.fontFamily;
-        textStyle.text = loadingOption.text || this._themeConfig.loadingText;
+        textStyle.text = loadingOption.text || this._option && this._option.loadingText || this._themeConfig.loadingText || ecConfig.loadingText;
         if (loadingOption.x != null) {
             textStyle.x = loadingOption.x;
         }
@@ -1259,59 +1304,67 @@ Echarts.prototype = {
         loadingOption.effectOption.textStyle = textStyle;
         var Effect = loadingOption.effect;
         if (typeof Effect === 'string' || Effect == null) {
-            Effect = effectList[loadingOption.effect || 'spin'];
+            Effect = effectList[loadingOption.effect || this._option && this._option.loadingEffect || this._themeConfig.loadingEffect || ecConfig.loadingEffect] || effectList.spin;
         }
         this._zr.showLoading(new Effect(loadingOption.effectOption));
         return this;
     },
     /**
-         * 隐藏loading过渡 
+         * 隐藏loading过渡
          */
     hideLoading: function () {
         this._zr.hideLoading();
         return this;
     },
     /**
-         * 主题设置 
+         * 主题设置
          */
     setTheme: function (theme) {
         if (theme) {
             if (typeof theme === 'string') {
                 // 默认主题
                 switch (theme) {
-                // case 'themename':
-                //     theme = require('./theme/themename');
+                case 'macarons':
+                    theme = require('./theme/macarons');
+                    break;
+                case 'infographic':
+                    theme = require('./theme/infographic');
+                    break;
                 default:
-                    theme = require('./theme/default');
+                    theme = {};    // require('./theme/default');
                 }
             } else {
                 theme = theme || {};
             }
-            // 复位默认配置
-            // this._themeConfig会被别的对象引用持有
-            // 所以不能改成this._themeConfig = {};
-            for (var key in this._themeConfig) {
-                delete this._themeConfig[key];
-            }
-            for (var key in ecConfig) {
-                this._themeConfig[key] = zrUtil.clone(ecConfig[key]);
-            }
-            // 颜色数组随theme，不merge
-            theme.color && (this._themeConfig.color = []);
-            // 默认标志图形类型列表，不merge
-            theme.symbolList && (this._themeConfig.symbolList = []);
-            // 应用新主题
-            zrUtil.merge(this._themeConfig, zrUtil.clone(theme), true);
+            // // 复位默认配置
+            // // this._themeConfig会被别的对象引用持有
+            // // 所以不能改成this._themeConfig = {};
+            // for (var key in this._themeConfig) {
+            //     delete this._themeConfig[key];
+            // }
+            // for (var key in ecConfig) {
+            //     this._themeConfig[key] = zrUtil.clone(ecConfig[key]);
+            // }
+            // // 颜色数组随theme，不merge
+            // theme.color && (this._themeConfig.color = []);
+            // // 默认标志图形类型列表，不merge
+            // theme.symbolList && (this._themeConfig.symbolList = []);
+            // // 应用新主题
+            // zrUtil.merge(this._themeConfig, zrUtil.clone(theme), true);
+            this._themeConfig = theme;
         }
         if (!_canvasSupported) {
             // IE8-
-            this._themeConfig.textStyle.fontFamily = this._themeConfig.textStyle.fontFamily2;
+            var textStyle = this._themeConfig.textStyle;
+            textStyle && textStyle.fontFamily && textStyle.fontFamily2 && (textStyle.fontFamily = textStyle.fontFamily2);
+            textStyle = ecConfig.textStyle;
+            textStyle.fontFamily = textStyle.fontFamily2;
         }
         this._timeline && this._timeline.setTheme(true);
         this._optionRestore && this.restore();
     },
     /**
-         * 视图区域大小变化更新，不默认绑定，供使用方按需调用 
+         * 视图区域大小变化更新，不默认绑定，供使用方按需调用
          */
     resize: function () {
         var self = this;

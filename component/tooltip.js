@@ -14,6 +14,65 @@ var LineShape = require('zrender/shape/Line');
 var RectangleShape = require('zrender/shape/Rectangle');
 var rectangleInstance = new RectangleShape({});
 var ecConfig = require('../config');
+// 提示框
+ecConfig.tooltip = {
+    zlevel: 1,
+    // 一级层叠，频繁变化的tooltip指示器在pc上独立一层
+    z: 8,
+    // 二级层叠
+    show: true,
+    showContent: true,
+    // tooltip主体内容
+    trigger: 'item',
+    // 触发类型，默认数据触发，见下图，可选为：'item' ¦ 'axis'
+    // position: null          // 位置 {Array} | {Function}
+    // formatter: null         // 内容格式器：{string}（Template） ¦ {Function}
+    islandFormatter: '{a} <br/>{b} : {c}',
+    // 数据孤岛内容格式器
+    showDelay: 20,
+    // 显示延迟，添加显示延迟可以避免频繁切换，单位ms
+    hideDelay: 100,
+    // 隐藏延迟，单位ms
+    transitionDuration: 0.4,
+    // 动画变换时间，单位s
+    enterable: false,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    // 提示背景颜色，默认为透明度为0.7的黑色
+    borderColor: '#333',
+    // 提示边框颜色
+    borderRadius: 4,
+    // 提示边框圆角，单位px，默认为4
+    borderWidth: 0,
+    // 提示边框线宽，单位px，默认为0（无边框）
+    padding: 5,
+    // 提示内边距，单位px，默认各方向内边距为5，
+    // 接受数组分别设定上右下左边距，同css
+    axisPointer: {
+        // 坐标轴指示器，坐标轴触发有效
+        type: 'line',
+        // 默认为直线，可选为：'line' | 'shadow' | 'cross'
+        lineStyle: {
+            // 直线指示器样式设置
+            color: '#48b',
+            width: 2,
+            type: 'solid'
+        },
+        crossStyle: {
+            color: '#1e90ff',
+            width: 1,
+            type: 'dashed'
+        },
+        shadowStyle: {
+            // 阴影指示器样式设置
+            color: 'rgba(150,150,150,0.3)',
+            // 阴影颜色
+            width: 'auto',
+            // 阴影大小
+            type: 'default'
+        }
+    },
+    textStyle: { color: '#fff' }
+};
 var ecData = require('../util/ecData');
 var zrConfig = require('zrender/config');
 var zrEvent = require('zrender/tool/event');
@@ -64,12 +123,14 @@ function Tooltip(ecTheme, messageCenter, zr, option, myChart) {
     this._tDom.onmouseout = function () {
         self._mousein = false;
     };
+    this._tDom.className = 'echarts-tooltip';
     this._tDom.style.position = 'absolute';
     // 不是多余的，别删！
     this.hasAppend = false;
     this._axisLineShape && this.zr.delShape(this._axisLineShape.id);
     this._axisLineShape = new LineShape({
-        zlevel: this._zlevelBase,
+        zlevel: this.getZlevelBase(),
+        z: this.getZBase(),
         invisible: true,
         hoverable: false
     });
@@ -77,7 +138,8 @@ function Tooltip(ecTheme, messageCenter, zr, option, myChart) {
     this.zr.addShape(this._axisLineShape);
     this._axisShadowShape && this.zr.delShape(this._axisShadowShape.id);
     this._axisShadowShape = new LineShape({
-        zlevel: 1,
+        zlevel: this.getZlevelBase(),
+        z: 1,
         // grid上，chart下
         invisible: true,
         hoverable: false
@@ -86,7 +148,8 @@ function Tooltip(ecTheme, messageCenter, zr, option, myChart) {
     this.zr.addShape(this._axisShadowShape);
     this._axisCrossShape && this.zr.delShape(this._axisCrossShape.id);
     this._axisCrossShape = new CrossShape({
-        zlevel: this._zlevelBase,
+        zlevel: this.getZlevelBase(),
+        z: this.getZBase(),
         invisible: true,
         hoverable: false
     });
@@ -179,7 +242,7 @@ Tooltip.prototype = {
             this._lastTipShape = false;
             this.shapeList.length = 2;
         }
-        needRefresh && this.zr.refresh();
+        needRefresh && this.zr.refreshNextFrame();
         this.showing = false;
     },
     _show: function (position, x, y, specialCssText) {
@@ -489,6 +552,8 @@ Tooltip.prototype = {
             }
         }
         if (seriesArray.length > 0) {
+            // 复位item trigger和axis trigger间短距离来回变换时的不响应
+            this._lastItemTriggerId = -1;
             // 相同dataIndex seriesIndex时不再触发内容更新
             if (this._lastDataIndex != dataIndex || this._lastSeriesIndex != seriesIndex[0]) {
                 this._lastDataIndex = dataIndex;
@@ -499,7 +564,7 @@ Tooltip.prototype = {
                     var params = [];
                     for (var i = 0, l = seriesArray.length; i < l; i++) {
                         data = seriesArray[i].data[dataIndex];
-                        value = data != null ? data.value != null ? data.value : data : '-';
+                        value = this.getDataFromOption(data, '-');
                         params.push({
                             seriesIndex: seriesIndex[i],
                             seriesName: seriesArray[i].name || '',
@@ -524,7 +589,7 @@ Tooltip.prototype = {
                         formatter = formatter.replace('{a' + i + '}', this._encodeHTML(seriesArray[i].name || ''));
                         formatter = formatter.replace('{b' + i + '}', this._encodeHTML(categoryAxis.getNameByIndex(dataIndex)));
                         data = seriesArray[i].data[dataIndex];
-                        data = data != null ? data.value != null ? data.value : data : '-';
+                        data = this.getDataFromOption(data, '-');
                         formatter = formatter.replace('{c' + i + '}', data instanceof Array ? data : this.numAddCommas(data));
                     }
                     this._tDom.innerHTML = formatter;
@@ -534,7 +599,7 @@ Tooltip.prototype = {
                     for (var i = 0, l = seriesArray.length; i < l; i++) {
                         formatter += '<br/>' + this._encodeHTML(seriesArray[i].name || '') + ' : ';
                         data = seriesArray[i].data[dataIndex];
-                        data = data != null ? data.value != null ? data.value : data : '-';
+                        data = this.getDataFromOption(data, '-');
                         formatter += data instanceof Array ? data : this.numAddCommas(data);
                     }
                     this._tDom.innerHTML = formatter;
@@ -609,7 +674,7 @@ Tooltip.prototype = {
                         name: '',
                         value: { dataIndex: '-' }
                     };
-                    value = data.value[dataIndex].value != null ? data.value[dataIndex].value : data.value[dataIndex];
+                    value = this.getDataFromOption(data.value[dataIndex]);
                     params.push({
                         seriesIndex: seriesIndex[i],
                         seriesName: seriesArray[i].name || '',
@@ -630,6 +695,8 @@ Tooltip.prototype = {
             if (params.length <= 0) {
                 return;
             }
+            // 复位item trigger和axis trigger间短距离来回变换时的不响应
+            this._lastItemTriggerId = -1;
             // 相同dataIndex seriesIndex时不再触发内容更新
             if (this._lastDataIndex != dataIndex || this._lastSeriesIndex != seriesIndex[0]) {
                 this._lastDataIndex = dataIndex;
@@ -685,6 +752,11 @@ Tooltip.prototype = {
         var value = ecData.get(this._curTarget, 'value');
         var special = ecData.get(this._curTarget, 'special');
         var special2 = ecData.get(this._curTarget, 'special2');
+        var queryTarget = [
+            data,
+            serie,
+            this.option
+        ];
         // 从低优先级往上找到trigger为item的formatter和样式
         var formatter;
         var position;
@@ -711,22 +783,13 @@ Tooltip.prototype = {
             specialCssText += this._style(this.query(data, 'tooltip'));
         } else {
             this._lastItemTriggerId = NaN;
-            showContent = this.deepQuery([
-                data,
-                serie,
-                this.option
-            ], 'tooltip.showContent');
-            formatter = this.deepQuery([
-                data,
-                serie,
-                this.option
-            ], 'tooltip.islandFormatter');
-            position = this.deepQuery([
-                data,
-                serie,
-                this.option
-            ], 'tooltip.islandPosition');
+            showContent = this.deepQuery(queryTarget, 'tooltip.showContent');
+            formatter = this.deepQuery(queryTarget, 'tooltip.islandFormatter');
+            position = this.deepQuery(queryTarget, 'tooltip.islandPosition');
         }
+        // 复位item trigger和axis trigger间短距离来回变换时的不响应
+        this._lastDataIndex = -1;
+        this._lastSeriesIndex = -1;
         // 相同dataIndex seriesIndex时不再触发内容更新
         if (this._lastItemTriggerId !== this._curTarget.id) {
             this._lastItemTriggerId = this._curTarget.id;
@@ -780,12 +843,12 @@ Tooltip.prototype = {
                 }
             }
         }
-        if (!this._axisLineShape.invisible || !this._axisShadowShape.invisible) {
-            this._axisLineShape.invisible = true;
-            this.zr.modShape(this._axisLineShape.id);
-            this._axisShadowShape.invisible = true;
-            this.zr.modShape(this._axisShadowShape.id);
-            this.zr.refresh();
+        var x = zrEvent.getX(this._event);
+        var y = zrEvent.getY(this._event);
+        if (this.deepQuery(queryTarget, 'tooltip.axisPointer.show') && this.component.grid) {
+            this._styleAxisPointer([serie], this.component.grid.getX(), y, this.component.grid.getXend(), y, 0, x, y);
+        } else {
+            this._hide();
         }
         // don't modify, just false, showContent == undefined == true
         if (showContent === false || !this.option.tooltip.showContent) {
@@ -798,7 +861,7 @@ Tooltip.prototype = {
             this.dom.firstChild.appendChild(this._tDom);
             this.hasAppend = true;
         }
-        this._show(position, zrEvent.getX(this._event) + 20, zrEvent.getY(this._event) - 20, specialCssText);
+        this._show(position, x + 20, y - 20, specialCssText);
     },
     _itemFormatter: {
         radar: function (serie, name, value, indicator) {
@@ -863,42 +926,41 @@ Tooltip.prototype = {
                 style[pType].type = axisPointer[pType + 'Style'].type;
             }
             for (var i = 0, l = seriesArray.length; i < l; i++) {
-                if (this.deepQuery([
-                        seriesArray[i],
-                        this.option
-                    ], 'tooltip.trigger') === 'axis') {
-                    queryTarget = seriesArray[i];
-                    curType = this.query(queryTarget, 'tooltip.axisPointer.type');
-                    pointType = curType || pointType;
-                    if (curType) {
-                        style[curType].color = this.query(queryTarget, 'tooltip.axisPointer.' + curType + 'Style.color') || style[curType].color;
-                        style[curType].width = this.query(queryTarget, 'tooltip.axisPointer.' + curType + 'Style.width') || style[curType].width;
-                        style[curType].type = this.query(queryTarget, 'tooltip.axisPointer.' + curType + 'Style.type') || style[curType].type;
-                    }
-                }
+                //if (this.deepQuery([seriesArray[i], this.option], 'tooltip.trigger') === 'axis') {
+                queryTarget = seriesArray[i];
+                curType = this.query(queryTarget, 'tooltip.axisPointer.type');
+                pointType = curType || pointType;
+                if (curType) {
+                    style[curType].color = this.query(queryTarget, 'tooltip.axisPointer.' + curType + 'Style.color') || style[curType].color;
+                    style[curType].width = this.query(queryTarget, 'tooltip.axisPointer.' + curType + 'Style.width') || style[curType].width;
+                    style[curType].type = this.query(queryTarget, 'tooltip.axisPointer.' + curType + 'Style.type') || style[curType].type;
+                }    //}
             }
             if (pointType === 'line') {
+                var lineWidth = style.line.width;
+                var isVertical = xStart == xEnd;
                 this._axisLineShape.style = {
-                    xStart: xStart,
-                    yStart: yStart,
-                    xEnd: xEnd,
-                    yEnd: yEnd,
+                    xStart: isVertical ? this.subPixelOptimize(xStart, lineWidth) : xStart,
+                    yStart: isVertical ? yStart : this.subPixelOptimize(yStart, lineWidth),
+                    xEnd: isVertical ? this.subPixelOptimize(xEnd, lineWidth) : xEnd,
+                    yEnd: isVertical ? yEnd : this.subPixelOptimize(yEnd, lineWidth),
                     strokeColor: style.line.color,
-                    lineWidth: style.line.width,
+                    lineWidth: lineWidth,
                     lineType: style.line.type
                 };
                 this._axisLineShape.invisible = false;
                 this.zr.modShape(this._axisLineShape.id);
             } else if (pointType === 'cross') {
+                var crossWidth = style.cross.width;
                 this._axisCrossShape.style = {
                     brushType: 'stroke',
                     rect: this.component.grid.getArea(),
-                    x: x,
-                    y: y,
+                    x: this.subPixelOptimize(x, crossWidth),
+                    y: this.subPixelOptimize(y, crossWidth),
                     text: ('( ' + this.component.xAxis.getAxis(0).getValueFromCoord(x) + ' , ' + this.component.yAxis.getAxis(0).getValueFromCoord(y) + ' )').replace('  , ', ' ').replace(' ,  ', ' '),
                     textPosition: 'specific',
                     strokeColor: style.cross.color,
-                    lineWidth: style.cross.width,
+                    lineWidth: crossWidth,
                     lineType: style.cross.type
                 };
                 if (this.component.grid.getXend() - x > 100) {
@@ -957,7 +1019,7 @@ Tooltip.prototype = {
                 this._axisShadowShape.invisible = false;
                 this.zr.modShape(this._axisShadowShape.id);
             }
-            this.zr.refresh();
+            this.zr.refreshNextFrame();
         }
     },
     __onmousemove: function (param) {
@@ -1040,7 +1102,8 @@ Tooltip.prototype = {
                 this.shapeList.length = 2;
             }
             for (var i = 0, l = tipShape.length; i < l; i++) {
-                tipShape[i].zlevel = this._zlevelBase;
+                tipShape[i].zlevel = this.getZlevelBase();
+                tipShape[i].z = this.getZBase();
                 tipShape[i].style = zrShapeBase.prototype.getHighlightStyle(tipShape[i].style, tipShape[i].highlightStyle);
                 tipShape[i].draggable = false;
                 tipShape[i].hoverable = false;
@@ -1122,26 +1185,6 @@ Tooltip.prototype = {
             case ecConfig.CHART_TYPE_LINE:
             case ecConfig.CHART_TYPE_BAR:
             case ecConfig.CHART_TYPE_K:
-                if (this.component.xAxis == null || this.component.yAxis == null || serie.data.length <= dataIndex) {
-                    return;
-                }
-                var xAxisIndex = serie.xAxisIndex || 0;
-                var yAxisIndex = serie.yAxisIndex || 0;
-                if (this.component.xAxis.getAxis(xAxisIndex).type === ecConfig.COMPONENT_TYPE_AXIS_CATEGORY) {
-                    // 横轴是类目
-                    this._event = {
-                        zrenderX: this.component.xAxis.getAxis(xAxisIndex).getCoordByIndex(dataIndex),
-                        zrenderY: this.component.grid.getY() + (this.component.grid.getYend() - this.component.grid.getY()) / 4
-                    };
-                } else {
-                    // 纵轴是类目
-                    this._event = {
-                        zrenderX: this.component.grid.getX() + (this.component.grid.getXend() - this.component.grid.getX()) / 4,
-                        zrenderY: this.component.yAxis.getAxis(yAxisIndex).getCoordByIndex(dataIndex)
-                    };
-                }
-                this._showAxisTrigger(xAxisIndex, yAxisIndex, dataIndex);
-                break;
             case ecConfig.CHART_TYPE_RADAR:
                 if (this.component.polar == null || serie.data[0].value.length <= dataIndex) {
                     return;
@@ -1164,10 +1207,11 @@ Tooltip.prototype = {
             case ecConfig.CHART_TYPE_LINE:
             case ecConfig.CHART_TYPE_BAR:
             case ecConfig.CHART_TYPE_K:
+            case ecConfig.CHART_TYPE_TREEMAP:
             case ecConfig.CHART_TYPE_SCATTER:
                 var dataIndex = params.dataIndex;
                 for (var i = 0, l = shapeList.length; i < l; i++) {
-                    if (ecData.get(shapeList[i], 'seriesIndex') == seriesIndex && ecData.get(shapeList[i], 'dataIndex') == dataIndex) {
+                    if (shapeList[i]._mark == null && ecData.get(shapeList[i], 'seriesIndex') == seriesIndex && ecData.get(shapeList[i], 'dataIndex') == dataIndex) {
                         this._curTarget = shapeList[i];
                         x = shapeList[i].style.x;
                         y = chart.type != ecConfig.CHART_TYPE_K ? shapeList[i].style.y : shapeList[i].style.y[0];
@@ -1304,6 +1348,9 @@ Tooltip.prototype = {
             this._setSelectedMap();
             this._axisLineWidth = this.option.tooltip.axisPointer.lineStyle.width;
             this._enterable = this.option.tooltip.enterable;
+            if (!this._enterable && this._tDom.className.indexOf(zrConfig.elementClassName) < 0) {
+                this._tDom.className += ' ' + zrConfig.elementClassName;
+            }
         }
         if (this.showing) {
             var self = this;
@@ -1323,7 +1370,7 @@ Tooltip.prototype = {
         clearTimeout(this._showingTicket);
         this.zr.un(zrConfig.EVENT.MOUSEMOVE, this._onmousemove);
         this.zr.un(zrConfig.EVENT.GLOBALOUT, this._onglobalout);
-        if (this.hasAppend) {
+        if (this.hasAppend && !!this.dom.firstChild) {
             this.dom.firstChild.removeChild(this._tDom);
         }
         this._tDom = null;

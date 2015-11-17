@@ -7,13 +7,63 @@
  */
 
 
-var ComponentBase = require('../component/base');
 var ChartBase = require('./base');
 // 图形依赖
 var TextShape = require('zrender/shape/Text');
 var LineShape = require('zrender/shape/Line');
 var PolygonShape = require('zrender/shape/Polygon');
 var ecConfig = require('../config');
+// 漏斗图默认参数
+ecConfig.funnel = {
+    zlevel: 0,
+    // 一级层叠
+    z: 2,
+    // 二级层叠
+    clickable: true,
+    legendHoverLink: true,
+    x: 80,
+    y: 60,
+    x2: 80,
+    y2: 60,
+    // width: {totalWidth} - x - x2,
+    // height: {totalHeight} - y - y2,
+    min: 0,
+    max: 100,
+    minSize: '0%',
+    maxSize: '100%',
+    sort: 'descending',
+    // 'ascending', 'descending'
+    gap: 0,
+    funnelAlign: 'center',
+    itemStyle: {
+        normal: {
+            // color: 各异,
+            borderColor: '#fff',
+            borderWidth: 1,
+            label: {
+                show: true,
+                position: 'outer'    // formatter: 标签文本格式器，同Tooltip.formatter，不支持异步回调
+                           // textStyle: null      // 默认使用全局文本样式，详见TEXTSTYLE
+            },
+            labelLine: {
+                show: true,
+                length: 10,
+                lineStyle: {
+                    // color: 各异,
+                    width: 1,
+                    type: 'solid'
+                }
+            }
+        },
+        emphasis: {
+            // color: 各异,
+            borderColor: 'rgba(0,0,0,0)',
+            borderWidth: 1,
+            label: { show: true },
+            labelLine: { show: true }
+        }
+    }
+};
 var ecData = require('../util/ecData');
 var number = require('../util/number');
 var zrUtil = require('zrender/tool/util');
@@ -27,10 +77,8 @@ var zrArea = require('zrender/tool/area');
      * @param {Object} component 组件
      */
 function Funnel(ecTheme, messageCenter, zr, option, myChart) {
-    // 基类
-    ComponentBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     // 图表基类
-    ChartBase.call(this);
+    ChartBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     this.refresh(option);
 }
 Funnel.prototype = {
@@ -82,11 +130,7 @@ Funnel.prototype = {
         // 计算需要显示的个数和总值
         for (var i = 0, l = data.length; i < l; i++) {
             itemName = data[i].name;
-            if (legend) {
-                this.selectedMap[itemName] = legend.isSelected(itemName);
-            } else {
-                this.selectedMap[itemName] = true;
-            }
+            this.selectedMap[itemName] = legend ? legend.isSelected(itemName) : true;
             if (this.selectedMap[itemName] && !isNaN(data[i].value)) {
                 selectedData.push(data[i]);
                 total++;
@@ -208,7 +252,7 @@ Funnel.prototype = {
                     ],
                     brushType: 'stroke',
                     lineWidth: 1,
-                    strokeColor: serie.calculableHolderColor || this.ecTheme.calculableHolderColor
+                    strokeColor: serie.calculableHolderColor || this.ecTheme.calculableHolderColor || ecConfig.calculableHolderColor
                 }
             };
             ecData.pack(funnelCase, serie, seriesIndex, undefined, -1);
@@ -224,23 +268,12 @@ Funnel.prototype = {
         var zrHeight = this.zr.getHeight();
         var x = this.parsePercent(gridOption.x, zrWidth);
         var y = this.parsePercent(gridOption.y, zrHeight);
-        var width;
-        if (gridOption.width == null) {
-            width = zrWidth - x - this.parsePercent(gridOption.x2, zrWidth);
-        } else {
-            width = this.parsePercent(gridOption.width, zrWidth);
-        }
-        var height;
-        if (gridOption.height == null) {
-            height = zrHeight - y - this.parsePercent(gridOption.y2, zrHeight);
-        } else {
-            height = this.parsePercent(gridOption.height, zrHeight);
-        }
+        var width = gridOption.width == null ? zrWidth - x - this.parsePercent(gridOption.x2, zrWidth) : this.parsePercent(gridOption.width, zrWidth);
         return {
             x: x,
             y: y,
             width: width,
-            height: height,
+            height: gridOption.height == null ? zrHeight - y - this.parsePercent(gridOption.y2, zrHeight) : this.parsePercent(gridOption.height, zrHeight),
             centerX: x + width / 2
         };
     },
@@ -316,7 +349,7 @@ Funnel.prototype = {
         var max = serie.max;
         var minSize = number.parsePercent(serie.minSize, location.width);
         var maxSize = number.parsePercent(serie.maxSize, location.width);
-        return value * (maxSize - minSize) / (max - min);
+        return (value - min) * (maxSize - minSize) / (max - min) + minSize;
     },
     /**
          * 构建扇形
@@ -346,7 +379,8 @@ Funnel.prototype = {
             break;
         }
         var polygon = {
-            zlevel: this._zlevelBase,
+            zlevel: serie.zlevel,
+            z: serie.z,
             clickable: this.deepQuery(queryTarget, 'clickable'),
             style: {
                 pointList: [
@@ -419,7 +453,8 @@ Funnel.prototype = {
             textAlign = 'left';
         }
         var textShape = {
-            zlevel: this._zlevelBase + 1,
+            zlevel: serie.zlevel,
+            z: serie.z + 1,
             style: {
                 x: this._getLabelPoint(labelControl.position, x, location, topWidth, bottomWidth, lineLength, align),
                 y: y + height / 2,
@@ -474,10 +509,17 @@ Funnel.prototype = {
         ], 'itemStyle.' + status + '.label.formatter');
         if (formatter) {
             if (typeof formatter === 'function') {
-                return formatter.call(this.myChart, serie.name, data.name, data.value);
+                return formatter.call(this.myChart, {
+                    seriesIndex: seriesIndex,
+                    seriesName: serie.name || '',
+                    series: serie,
+                    dataIndex: dataIndex,
+                    data: data,
+                    name: data.name,
+                    value: data.value
+                });
             } else if (typeof formatter === 'string') {
-                formatter = formatter.replace('{a}', '{a0}').replace('{b}', '{b0}').replace('{c}', '{c0}');
-                formatter = formatter.replace('{a0}', serie.name).replace('{b0}', data.name).replace('{c0}', data.value);
+                formatter = formatter.replace('{a}', '{a0}').replace('{b}', '{b0}').replace('{c}', '{c0}').replace('{a0}', serie.name).replace('{b0}', data.name).replace('{c0}', data.value);
                 return formatter;
             }
         } else {
@@ -501,7 +543,8 @@ Funnel.prototype = {
         var labelControl = itemStyle[status].label;
         labelControl.position = labelControl.position || itemStyle.normal.label.position;
         var lineShape = {
-            zlevel: this._zlevelBase + 1,
+            zlevel: serie.zlevel,
+            z: serie.z + 1,
             hoverable: false,
             style: {
                 xStart: this._getLabelLineStartPoint(x, location, topWidth, bottomWidth, align),
@@ -594,7 +637,6 @@ Funnel.prototype = {
     }
 };
 zrUtil.inherits(Funnel, ChartBase);
-zrUtil.inherits(Funnel, ComponentBase);
 // 图表注册
 require('../chart').define('funnel', Funnel);
 module.exports = Funnel || module.exports;;

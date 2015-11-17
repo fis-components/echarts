@@ -1,7 +1,8 @@
 /**
- * 图数据结构
+ * Graph data structure
+ * 
  * @module echarts/data/Graph
- * @author pissang(http://www.github.com/pissang)
+ * @author Yi Shen(https://www.github.com/pissang)
  */
 
 
@@ -123,9 +124,9 @@ Graph.prototype.getEdge = function (n1, n2) {
         n2 = n2.id;
     }
     if (this._directed) {
-        return this._edgesMap[n1 + '-' + n2] || this._edgesMap[n2 + '-' + n1];
-    } else {
         return this._edgesMap[n1 + '-' + n2];
+    } else {
+        return this._edgesMap[n1 + '-' + n2] || this._edgesMap[n2 + '-' + n1];
     }
 };
 /**
@@ -424,6 +425,7 @@ Graph.fromMatrix = function (nodesData, matrix, directed) {
             }
         }
     }
+    // console.log(graph.edges.map(function (e) {return e.node1.id + '-' + e.node2.id;}))
     return graph;
 };
 module.exports = Graph || module.exports;;

@@ -12,9 +12,9 @@ var requestAnimationFrame = window.requestAnimationFrame || window.msRequestAnim
 };
 var ArrayCtor = typeof Float32Array == 'undefined' ? Array : Float32Array;
 var workerUrl;
-function getToken() {
-    return Math.round(new Date().getTime() / 100) % 10000000;
-}
+// function getToken() {
+//     return Math.round((new Date()).getTime() / 100) % 10000000;
+// }
 function createWorkerUrl() {
     if (typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
         try {
@@ -51,7 +51,6 @@ var ForceLayout = function (opts) {
     this.coolDown = opts.coolDown || 0.99;
     this._layout = null;
     this._layoutWorker = null;
-    this._token = 0;
     var self = this;
     var _$onupdate = this._$onupdate;
     this._$onupdate = function (e) {
@@ -85,6 +84,10 @@ ForceLayout.prototype.updateConfig = function () {
     }
 };
 ForceLayout.prototype.init = function (graph, useWorker) {
+    if (this._layoutWorker) {
+        this._layoutWorker.terminate();
+        this._layoutWorker = null;
+    }
     if (workerUrl && useWorker) {
         try {
             if (!this._layoutWorker) {
@@ -102,10 +105,6 @@ ForceLayout.prototype.init = function (graph, useWorker) {
     } else {
         if (!this._layout) {
             this._layout = new ForceLayoutWorker();
-        }
-        if (this._layoutWorker) {
-            this._layoutWorker.terminate();
-            this._layoutWorker = null;
         }
     }
     this.temperature = 1;
@@ -133,7 +132,6 @@ ForceLayout.prototype.init = function (graph, useWorker) {
         edgeArr[i * 2 + 1] = edge.node2.layout.__index;
         edgeWeightArr[i] = edge.layout.weight || 1;
     }
-    this._token = getToken();
     if (this._layoutWorker) {
         this._layoutWorker.postMessage({
             cmd: 'init',
@@ -141,11 +139,9 @@ ForceLayout.prototype.init = function (graph, useWorker) {
             nodesMass: massArr,
             nodesSize: sizeArr,
             edges: edgeArr,
-            edgesWeight: edgeWeightArr,
-            token: this._token
+            edgesWeight: edgeWeightArr
         });
     } else {
-        this._layout.setToken(this._token);
         this._layout.initNodes(positionArr, massArr, sizeArr);
         this._layout.initEdges(edgeArr, edgeWeightArr);
     }
@@ -155,11 +151,11 @@ ForceLayout.prototype.step = function (steps) {
     var nodes = this.graph.nodes;
     if (this._layoutWorker) {
         // Sync back
-        var positionArr = new ArrayCtor(nodes.length * 2 + 1);
+        var positionArr = new ArrayCtor(nodes.length * 2);
         for (var i = 0; i < nodes.length; i++) {
             var n = nodes[i];
-            positionArr[i * 2 + 1] = n.layout.position[0];
-            positionArr[i * 2 + 2] = n.layout.position[1];
+            positionArr[i * 2] = n.layout.position[0];
+            positionArr[i * 2 + 1] = n.layout.position[1];
         }
         this._layoutWorker.postMessage(positionArr.buffer, [positionArr.buffer]);
         this._layoutWorker.postMessage({
@@ -187,24 +183,18 @@ ForceLayout.prototype.step = function (steps) {
 ForceLayout.prototype._$onupdate = function (e) {
     if (this._layoutWorker) {
         var positionArr = new Float32Array(e.data);
-        var token = positionArr[0];
-        // If token is from current layout instance
-        if (token === this._token) {
-            for (var i = 0; i < this.graph.nodes.length; i++) {
-                var n = this.graph.nodes[i];
-                n.layout.position[0] = positionArr[i * 2 + 1];
-                n.layout.position[1] = positionArr[i * 2 + 2];
-            }
-            this.onupdate && this.onupdate();
+        for (var i = 0; i < this.graph.nodes.length; i++) {
+            var n = this.graph.nodes[i];
+            n.layout.position[0] = positionArr[i * 2];
+            n.layout.position[1] = positionArr[i * 2 + 1];
         }
+        this.onupdate && this.onupdate();
     } else if (this._layout) {
-        if (this._layout.tokenMatch(this._token)) {
-            for (var i = 0; i < this.graph.nodes.length; i++) {
-                var n = this.graph.nodes[i];
-                vec2.copy(n.layout.position, this._layout.nodes[i].position);
-            }
-            this.onupdate && this.onupdate();
+        for (var i = 0; i < this.graph.nodes.length; i++) {
+            var n = this.graph.nodes[i];
+            vec2.copy(n.layout.position, this._layout.nodes[i].position);
         }
+        this.onupdate && this.onupdate();
     }
 };
 ForceLayout.prototype.dispose = function () {
@@ -213,6 +203,5 @@ ForceLayout.prototype.dispose = function () {
     }
     this._layoutWorker = null;
     this._layout = null;
-    this._token = 0;
 };
 module.exports = ForceLayout || module.exports;;

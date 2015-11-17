@@ -24,7 +24,7 @@ HandlePolygon.prototype = {
         PolygonShape.prototype.buildPath(ctx, style);
     },
     isCover: function (x, y) {
-        var originPos = this.getTansform(x, y);
+        var originPos = this.transformCoordToLocal(x, y);
         x = originPos[0];
         y = originPos[1];
         // 不能缓存rect！

@@ -7,11 +7,18 @@
  */
 
 
-var ComponentBase = require('../component/base');
 var ChartBase = require('./base');
 // 图形依赖
 var CircleShape = require('zrender/shape/Circle');
 var ecConfig = require('../config');
+ecConfig.island = {
+    zlevel: 0,
+    // 一级层叠
+    z: 5,
+    // 二级层叠
+    r: 15,
+    calculateStep: 0.1    // 滚轮可计算步长 0.1 = 10%
+};
 var ecData = require('../util/ecData');
 var zrUtil = require('zrender/tool/util');
 var zrEvent = require('zrender/tool/event');
@@ -22,10 +29,8 @@ var zrEvent = require('zrender/tool/event');
      * @param {Object} option 图表选项
      */
 function Island(ecTheme, messageCenter, zr, option, myChart) {
-    // 基类
-    ComponentBase.call(this, ecTheme, messageCenter, zr, {}, myChart);
     // 图表基类
-    ChartBase.call(this);
+    ChartBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     this._nameConnector;
     this._valueConnector;
     this._zrHeight = this.zr.getHeight();
@@ -43,17 +48,13 @@ function Island(ecTheme, messageCenter, zr, option, myChart) {
         shape.style.r = shape.style.r < 5 ? 5 : shape.style.r;
         var value = ecData.get(shape, 'value');
         var dvalue = value * self.option.island.calculateStep;
-        if (dvalue > 1) {
-            value = Math.round(value - dvalue * delta);
-        } else {
-            value = (value - dvalue * delta).toFixed(2) - 0;
-        }
+        value = dvalue > 1 ? Math.round(value - dvalue * delta) : +(value - dvalue * delta).toFixed(2);
         var name = ecData.get(shape, 'name');
         shape.style.text = name + ':' + value;
         ecData.set(shape, 'value', value);
         ecData.set(shape, 'name', name);
         self.zr.modShape(shape.id);
-        self.zr.refresh();
+        self.zr.refreshNextFrame();
         zrEvent.stop(event);
     };
 }
@@ -114,8 +115,10 @@ Island.prototype = {
         var value = ecData.get(shape, 'value');
         var seriesName = ecData.get(shape, 'series') != null ? ecData.get(shape, 'series').name : '';
         var font = this.getFont(this.option.island.textStyle);
+        var islandOption = this.option.island;
         var islandShape = {
-            zlevel: this._zlevelBase,
+            zlevel: islandOption.zlevel,
+            z: islandOption.z,
             style: {
                 x: shape.style.x,
                 y: shape.style.y,
@@ -196,7 +199,6 @@ Island.prototype = {
     }
 };
 zrUtil.inherits(Island, ChartBase);
-zrUtil.inherits(Island, ComponentBase);
 // 图表注册
 require('../chart').define('island', Island);
 module.exports = Island || module.exports;;

@@ -572,12 +572,6 @@ ForceLayout.getWorkerCode = function () {
     var str = __echartsForceLayoutWorker.toString();
     return str.slice(str.indexOf('{') + 1, str.lastIndexOf('return'));
 };
-ForceLayout.prototype.setToken = function (token) {
-    this._token = token;
-};
-ForceLayout.prototype.tokenMatch = function (token) {
-    return token === this._token;
-};
 /****************************
      * Main process
      ***************************/
@@ -590,11 +584,11 @@ if (inWorker) {
             if (!forceLayout)
                 return;
             var positionArr = new Float32Array(e.data);
-            var nNodes = (positionArr.length - 1) / 2;
+            var nNodes = positionArr.length / 2;
             for (var i = 0; i < nNodes; i++) {
                 var node = forceLayout.nodes[i];
-                node.position[0] = positionArr[i * 2 + 1];
-                node.position[1] = positionArr[i * 2 + 2];
+                node.position[0] = positionArr[i * 2];
+                node.position[1] = positionArr[i * 2 + 1];
             }
             return;
         }
@@ -605,7 +599,6 @@ if (inWorker) {
             }
             forceLayout.initNodes(e.data.nodesPosition, e.data.nodesMass, e.data.nodesSize);
             forceLayout.initEdges(e.data.edges, e.data.edgesWeight);
-            forceLayout._token = e.data.token;
             break;
         case 'updateConfig':
             if (forceLayout) {
@@ -618,7 +611,7 @@ if (inWorker) {
             var steps = e.data.steps;
             if (forceLayout) {
                 var nNodes = forceLayout.nodes.length;
-                var positionArr = new Float32Array(nNodes * 2 + 1);
+                var positionArr = new Float32Array(nNodes * 2);
                 forceLayout.temperature = e.data.temperature;
                 for (var i = 0; i < steps; i++) {
                     forceLayout.update();
@@ -627,10 +620,9 @@ if (inWorker) {
                 // Callback
                 for (var i = 0; i < nNodes; i++) {
                     var node = forceLayout.nodes[i];
-                    positionArr[i * 2 + 1] = node.position[0];
-                    positionArr[i * 2 + 2] = node.position[1];
+                    positionArr[i * 2] = node.position[0];
+                    positionArr[i * 2 + 1] = node.position[1];
                 }
-                positionArr[0] = forceLayout._token;
                 self.postMessage(positionArr.buffer, [positionArr.buffer]);
             } else {
                 // Not initialzied yet

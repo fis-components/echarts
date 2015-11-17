@@ -7,7 +7,6 @@
  */
 
 
-var ComponentBase = require('../component/base');
 var ChartBase = require('./base');
 // 图形依赖
 var CandleShape = require('../util/shape/Candle');
@@ -16,6 +15,50 @@ require('../component/axis');
 require('../component/grid');
 require('../component/dataZoom');
 var ecConfig = require('../config');
+// K线图默认参数
+ecConfig.k = {
+    zlevel: 0,
+    // 一级层叠
+    z: 2,
+    // 二级层叠
+    clickable: true,
+    hoverable: true,
+    legendHoverLink: false,
+    xAxisIndex: 0,
+    yAxisIndex: 0,
+    // barWidth: null               // 默认自适应
+    // barMaxWidth: null            // 默认自适应 
+    itemStyle: {
+        normal: {
+            color: '#fff',
+            // 阳线填充颜色
+            color0: '#00aa11',
+            // 阴线填充颜色
+            lineStyle: {
+                width: 1,
+                color: '#ff3200',
+                // 阳线边框颜色
+                color0: '#00aa11'    // 阴线边框颜色
+            },
+            label: {
+                show: false    // formatter: 标签文本格式器，同Tooltip.formatter，不支持异步回调
+                         // position: 默认自适应，水平布局为'top'，垂直布局为'right'，可选为
+                         //           'inside'|'left'|'right'|'top'|'bottom'
+                         // textStyle: null      // 默认使用全局文本样式，详见TEXTSTYLE
+            }
+        },
+        emphasis: {
+            // color: 各异,
+            // color0: 各异,
+            label: {
+                show: false    // formatter: 标签文本格式器，同Tooltip.formatter，不支持异步回调
+                         // position: 默认自适应，水平布局为'top'，垂直布局为'right'，可选为
+                         //           'inside'|'left'|'right'|'top'|'bottom'
+                         // textStyle: null      // 默认使用全局文本样式，详见TEXTSTYLE
+            }
+        }
+    }
+};
 var ecData = require('../util/ecData');
 var zrUtil = require('zrender/tool/util');
 /**
@@ -26,10 +69,8 @@ var zrUtil = require('zrender/tool/util');
      * @param {Object} component 组件
      */
 function K(ecTheme, messageCenter, zr, option, myChart) {
-    // 基类
-    ComponentBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     // 图表基类
-    ChartBase.call(this);
+    ChartBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     this.refresh(option);
 }
 K.prototype = {
@@ -100,11 +141,7 @@ K.prototype = {
         for (var i = 0, l = seriesArray.length; i < l; i++) {
             serie = series[seriesArray[i]];
             serieName = serie.name;
-            if (legend) {
-                this.selectedMap[serieName] = legend.isSelected(serieName);
-            } else {
-                this.selectedMap[serieName] = true;
-            }
+            this.selectedMap[serieName] = legend ? legend.isSelected(serieName) : true;
             if (this.selectedMap[serieName]) {
                 locationMap.push(seriesArray[i]);
             }
@@ -154,7 +191,7 @@ K.prototype = {
                     break;
                 }
                 data = serie.data[i];
-                value = data != null ? data.value != null ? data.value : data : '-';
+                value = this.getDataFromOption(data, '-');
                 if (value === '-' || value.length != 4) {
                     // 数据格式不符
                     continue;
@@ -292,12 +329,17 @@ K.prototype = {
          */
     _getCandle: function (seriesIndex, dataIndex, name, x, width, y0, y1, y2, y3, nColor, nLinewidth, nLineColor, eColor, eLinewidth, eLineColor) {
         var series = this.series;
+        var serie = series[seriesIndex];
+        var data = serie.data[dataIndex];
+        var queryTarget = [
+            data,
+            serie
+        ];
         var itemShape = {
-            zlevel: this._zlevelBase,
-            clickable: this.deepQuery([
-                series[seriesIndex].data[dataIndex],
-                series[seriesIndex]
-            ], 'clickable'),
+            zlevel: serie.zlevel,
+            z: serie.z,
+            clickable: this.deepQuery(queryTarget, 'clickable'),
+            hoverable: this.deepQuery(queryTarget, 'hoverable'),
             style: {
                 x: x,
                 y: [
@@ -319,7 +361,8 @@ K.prototype = {
             },
             _seriesIndex: seriesIndex
         };
-        ecData.pack(itemShape, series[seriesIndex], seriesIndex, series[seriesIndex].data[dataIndex], dataIndex, name);
+        itemShape = this.addLabel(itemShape, serie, data, name);
+        ecData.pack(itemShape, serie, seriesIndex, data, dataIndex, name);
         itemShape = new CandleShape(itemShape);
         return itemShape;
     },
@@ -347,7 +390,7 @@ K.prototype = {
     /**
          * 动画设定
          */
-    addDataAnimation: function (params) {
+    addDataAnimation: function (params, done) {
         var series = this.series;
         var aniMap = {};
         // seriesIndex索引参数
@@ -360,6 +403,13 @@ K.prototype = {
         var serie;
         var seriesIndex;
         var dataIndex;
+        var aniCount = 0;
+        function animationDone() {
+            aniCount--;
+            if (aniCount === 0) {
+                done && done();
+            }
+        }
         for (var i = 0, l = this.shapeList.length; i < l; i++) {
             seriesIndex = this.shapeList[i]._seriesIndex;
             if (aniMap[seriesIndex] && !aniMap[seriesIndex][3]) {
@@ -379,19 +429,23 @@ K.prototype = {
                     dx = this.component.xAxis.getAxis(serie.xAxisIndex || 0).getGap();
                     x = aniMap[seriesIndex][2] ? dx : -dx;
                     y = 0;
-                    this.zr.animate(this.shapeList[i].id, '').when(500, {
+                    aniCount++;
+                    this.zr.animate(this.shapeList[i].id, '').when(this.query(this.option, 'animationDurationUpdate'), {
                         position: [
                             x,
                             y
                         ]
-                    }).start();
+                    }).done(animationDone).start();
                 }
             }
+        }
+        // 没有动画
+        if (!aniCount) {
+            done && done();
         }
     }
 };
 zrUtil.inherits(K, ChartBase);
-zrUtil.inherits(K, ComponentBase);
 // 图表注册
 require('../chart').define('k', K);
 module.exports = K || module.exports;;

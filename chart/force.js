@@ -7,7 +7,6 @@
 
 
 'use strict';
-var ComponentBase = require('../component/base');
 var ChartBase = require('./base');
 var Graph = require('../data/Graph');
 var ForceLayout = require('../layout/Force');
@@ -17,6 +16,105 @@ var BezierCurveShape = require('zrender/shape/BezierCurve');
 var ImageShape = require('zrender/shape/Image');
 var IconShape = require('../util/shape/Icon');
 var ecConfig = require('../config');
+// 力导向布局图默认参数
+ecConfig.force = {
+    zlevel: 1,
+    // 一级层叠
+    z: 2,
+    // 二级层叠
+    // 布局中心
+    center: [
+        '50%',
+        '50%'
+    ],
+    // 布局大小
+    size: '100%',
+    // 防止节点和节点，节点和边之间的重叠
+    preventOverlap: false,
+    // 布局冷却因子，值越小结束时间越短，值越大时间越长但是结果也越收敛
+    coolDown: 0.99,
+    // 数据映射到圆的半径的最小值和最大值
+    minRadius: 10,
+    maxRadius: 20,
+    // 是否根据屏幕比例拉伸
+    ratioScaling: false,
+    // 在 500+ 顶点的图上建议设置 large 为 true, 会使用 Barnes-Hut simulation
+    // 同时开启 useWorker 并且把 steps 值调大
+    // 关于Barnes-Hut simulation: http://en.wikipedia.org/wiki/Barnes–Hut_simulation
+    large: false,
+    // 是否在浏览器支持 worker 的时候使用 web worker
+    useWorker: false,
+    // 每一帧 force 迭代的次数，仅在启用webworker的情况下有用
+    steps: 1,
+    // 布局缩放因子，并不完全精确, 效果跟布局大小类似
+    scaling: 1,
+    // 向心力因子，越大向心力越大（ 所有顶点会往 center 的位置收拢 )
+    gravity: 1,
+    symbol: 'circle',
+    // symbolSize 为 0 的话使用映射到minRadius-maxRadius后的值
+    symbolSize: 0,
+    linkSymbol: null,
+    linkSymbolSize: [
+        10,
+        15
+    ],
+    draggable: true,
+    clickable: true,
+    roam: false,
+    // 分类里如果有样式会覆盖节点默认样式
+    // categories: [{
+    // itemStyle
+    // symbol
+    // symbolSize
+    // name
+    // }],
+    itemStyle: {
+        normal: {
+            // color: 各异,
+            label: {
+                show: false,
+                position: 'inside'    // textStyle: null      // 默认使用全局文本样式，详见TEXTSTYLE
+            },
+            nodeStyle: {
+                brushType: 'both',
+                borderColor: '#5182ab',
+                borderWidth: 1
+            },
+            linkStyle: {
+                color: '#5182ab',
+                width: 1,
+                type: 'line'
+            }
+        },
+        emphasis: {
+            // color: 各异,
+            label: {
+                show: false    // textStyle: null      // 默认使用全局文本样式，详见TEXTSTYLE
+            },
+            nodeStyle: {},
+            linkStyle: { opacity: 0 }
+        }
+    }    // nodes: [{
+         //     name: 'xxx',
+         //     value: 1,
+         //     itemStyle: {},
+         //     initial: [0, 0],
+         //     fixX: false,
+         //     fixY: false,
+         //     ignore: false,
+         //     symbol: 'circle',
+         //     symbolSize: 0
+         // }]
+         // links: [{
+         //      source: 1,
+         //      target: 2,
+         //      weight: 1,
+         //      itemStyle: {}
+         // }, {
+         //      source: 'xxx',
+         //      target: 'ooo'
+         // }]
+};
 var ecData = require('../util/ecData');
 var zrUtil = require('zrender/tool/util');
 var zrConfig = require('zrender/config');
@@ -30,10 +128,8 @@ var vec2 = require('zrender/tool/vector');
      */
 function Force(ecTheme, messageCenter, zr, option, myChart) {
     var self = this;
-    // 基类
-    ComponentBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     // 图表基类
-    ChartBase.call(this);
+    ChartBase.call(this, ecTheme, messageCenter, zr, option, myChart);
     // 保存节点的位置，改变数据时能够有更好的动画效果
     this.__nodePositionMap = {};
     this._graph = new Graph(true);
@@ -66,7 +162,7 @@ Force.prototype = {
     constructor: Force,
     type: ecConfig.CHART_TYPE_FORCE,
     _init: function () {
-        // var self = this;
+        this.selectedMap = {};
         var legend = this.component.legend;
         var series = this.series;
         var serieName;
@@ -87,6 +183,7 @@ Force.prototype = {
                 break;
             }
         }
+        this.animationEffect();
     },
     _getNodeCategory: function (serie, node) {
         return serie.categories && serie.categories[node.category || 0];
@@ -112,20 +209,28 @@ Force.prototype = {
     },
     _initSerie: function (serie, serieIdx) {
         this._temperature = 1;
-        // data-matrix 表示数据
-        if (serie.data) {
+        // matrix 表示边
+        if (serie.matrix) {
             this._graph = this._getSerieGraphFromDataMatrix(serie);
-        }    // node-links 表示数据
-        else {
+        }    // links 表示边
+        else if (serie.links) {
             this._graph = this._getSerieGraphFromNodeLinks(serie);
         }
         this._buildLinkShapes(serie, serieIdx);
         this._buildNodeShapes(serie, serieIdx);
+        var panable = serie.roam === true || serie.roam === 'move';
+        var zoomable = serie.roam === true || serie.roam === 'scale';
         // Enable pan and zooom
         this.zr.modLayer(this.getZlevelBase(), {
-            panable: serie.roam === true || serie.roam === 'move',
-            zoomable: serie.roam === true || serie.roam === 'scale'
+            panable: panable,
+            zoomable: zoomable
         });
+        if (this.query('markPoint.effect.show') || this.query('markLine.effect.show')) {
+            this.zr.modLayer(ecConfig.EFFECT_ZLEVEL, {
+                panable: panable,
+                zoomable: zoomable
+            });
+        }
         this._initLayout(serie);
         this._step();
     },
@@ -245,17 +350,18 @@ Force.prototype = {
         var minRadius = this.query(serie, 'minRadius');
         var maxRadius = this.query(serie, 'maxRadius');
         this._steps = serie.steps || 1;
-        this._layout.center = this.parseCenter(this.zr, serie.center);
-        this._layout.width = this.parsePercent(serie.size, this.zr.getWidth());
-        this._layout.height = this.parsePercent(serie.size, this.zr.getHeight());
-        this._layout.large = serie.large;
-        this._layout.scaling = serie.scaling;
-        this._layout.ratioScaling = serie.ratioScaling;
-        this._layout.gravity = serie.gravity;
-        this._layout.temperature = 1;
-        this._layout.coolDown = serie.coolDown;
-        this._layout.preventNodeEdgeOverlap = serie.preventOverlap;
-        this._layout.preventNodeOverlap = serie.preventOverlap;
+        var layout = this._layout;
+        layout.center = this.parseCenter(this.zr, serie.center);
+        layout.width = this.parsePercent(serie.size, this.zr.getWidth());
+        layout.height = this.parsePercent(serie.size, this.zr.getHeight());
+        layout.large = serie.large;
+        layout.scaling = serie.scaling;
+        layout.ratioScaling = serie.ratioScaling;
+        layout.gravity = serie.gravity;
+        layout.temperature = 1;
+        layout.coolDown = serie.coolDown;
+        layout.preventNodeEdgeOverlap = serie.preventOverlap;
+        layout.preventNodeOverlap = serie.preventOverlap;
         // 将值映射到minRadius-maxRadius的范围上
         var min = Infinity;
         var max = -Infinity;
@@ -337,26 +443,37 @@ Force.prototype = {
                     lineWidth: this.deepQuery(styleQueryTarget, 'lineWidth') || this.deepQuery(styleQueryTarget, 'borderWidth')
                 },
                 highlightStyle: {
-                    color: this.deepQuery(emphasisStyleQueryTarget, 'color', 'emphasis'),
+                    color: this.deepQuery(emphasisStyleQueryTarget, 'color'),
                     // 兼容原有写法
-                    strokeColor: this.deepQuery(emphasisStyleQueryTarget, 'strokeColor', 'emphasis') || this.deepQuery(emphasisStyleQueryTarget, 'borderColor', 'emphasis'),
-                    lineWidth: this.deepQuery(emphasisStyleQueryTarget, 'lineWidth', 'emphasis') || this.deepQuery(emphasisStyleQueryTarget, 'borderWidth', 'emphasis')
+                    strokeColor: this.deepQuery(emphasisStyleQueryTarget, 'strokeColor') || this.deepQuery(emphasisStyleQueryTarget, 'borderColor'),
+                    lineWidth: this.deepQuery(emphasisStyleQueryTarget, 'lineWidth') || this.deepQuery(emphasisStyleQueryTarget, 'borderWidth')
                 },
                 clickable: serie.clickable,
-                zlevel: this.getZlevelBase()
+                zlevel: this.getZlevelBase(),
+                z: this.getZBase()
             });
             if (!shape.style.color) {
                 shape.style.color = category ? this.getColor(category.name) : this.getColor(node.id);
             }
             shape.style.iconType = this.deepQuery(queryTarget, 'symbol');
+            var symbolSize = this.deepQuery(queryTarget, 'symbolSize') || 0;
+            if (typeof symbolSize === 'number') {
+                symbolSize = [
+                    symbolSize,
+                    symbolSize
+                ];
+            }
             // 强制设定节点大小，否则默认映射到 minRadius 到 maxRadius 后的值
-            shape.style.width = shape.style.height = (this.deepQuery(queryTarget, 'symbolSize') || 0) * 2;
+            shape.style.width = symbolSize[0] * 2;
+            shape.style.height = symbolSize[1] * 2;
             if (shape.style.iconType.match('image')) {
                 shape.style.image = shape.style.iconType.replace(new RegExp('^image:\\/\\/'), '');
                 shape = new ImageShape({
                     style: shape.style,
                     highlightStyle: shape.highlightStyle,
-                    clickable: shape.clickable
+                    clickable: shape.clickable,
+                    zlevel: this.getZlevelBase(),
+                    z: this.getZBase()
                 });
             }
             // 节点标签样式
@@ -404,7 +521,8 @@ Force.prototype = {
             var link = gEdge.data;
             var source = gEdge.node1;
             var target = gEdge.node2;
-            var queryTarget = this._getEdgeQueryTarget(serie, gEdge);
+            var otherEdge = graph.getEdge(target, source);
+            var queryTarget = this._getEdgeQueryTarget(serie, link);
             var linkType = this.deepQuery(queryTarget, 'type');
             // TODO 暂时只有线段支持箭头
             if (serie.linkSymbol && serie.linkSymbol !== 'none') {
@@ -416,13 +534,18 @@ Force.prototype = {
                     xStart: 0,
                     yStart: 0,
                     xEnd: 0,
-                    yEnd: 0,
-                    lineWidth: 1
+                    yEnd: 0
                 },
                 clickable: this.query(serie, 'clickable'),
                 highlightStyle: {},
-                zlevel: this.getZlevelBase()
+                zlevel: this.getZlevelBase(),
+                z: this.getZBase()
             });
+            if (otherEdge && otherEdge.shape) {
+                // 偏移一定位置放置双向边重叠
+                linkShape.style.offset = 4;
+                otherEdge.shape.style.offset = 4;
+            }
             zrUtil.merge(linkShape.style, this.query(serie, 'itemStyle.normal.linkStyle'), true);
             zrUtil.merge(linkShape.highlightStyle, this.query(serie, 'itemStyle.emphasis.linkStyle'), true);
             if (typeof link.itemStyle !== 'undefined') {
@@ -462,19 +585,16 @@ Force.prototype = {
                         iconType: serie.linkSymbol,
                         brushType: 'fill',
                         // Use same style with link shape
-                        color: linkShape.style.strokeColor,
-                        opacity: linkShape.style.opacity,
-                        shadowBlur: linkShape.style.shadowBlur,
-                        shadowColor: linkShape.style.shadowColor,
-                        shadowOffsetX: linkShape.style.shadowOffsetX,
-                        shadowOffsetY: linkShape.style.shadowOffsetY
+                        color: linkShape.style.strokeColor
                     },
                     highlightStyle: { brushType: 'fill' },
                     position: [
                         0,
                         0
                     ],
-                    rotation: 0
+                    rotation: 0,
+                    zlevel: this.getZlevelBase(),
+                    z: this.getZBase()
                 });
                 linkShape._symbolShape = symbolShape;
                 this.shapeList.push(symbolShape);
@@ -484,27 +604,36 @@ Force.prototype = {
     },
     _updateLinkShapes: function () {
         var v = vec2.create();
+        var n = vec2.create();
+        var p1 = vec2.create();
+        var p2 = vec2.create();
         var edges = this._graph.edges;
         for (var i = 0, len = edges.length; i < len; i++) {
             var edge = edges[i];
             var sourceShape = edge.node1.shape;
             var targetShape = edge.node2.shape;
-            var p1 = sourceShape.position;
-            var p2 = targetShape.position;
-            edge.shape.style.xStart = p1[0];
-            edge.shape.style.yStart = p1[1];
-            edge.shape.style.xEnd = p2[0];
-            edge.shape.style.yEnd = p2[1];
-            if (edge.shape.type === 'bezier-curve') {
-                edge.shape.style.cpX1 = (p1[0] + p2[0]) / 2 - (p2[1] - p1[1]) / 4;
-                edge.shape.style.cpY1 = (p1[1] + p2[1]) / 2 - (p1[0] - p2[0]) / 4;
+            vec2.copy(p1, sourceShape.position);
+            vec2.copy(p2, targetShape.position);
+            var edgeShapeStyle = edge.shape.style;
+            vec2.sub(v, p1, p2);
+            vec2.normalize(v, v);
+            if (edgeShapeStyle.offset) {
+                n[0] = v[1];
+                n[1] = -v[0];
+                vec2.scaleAndAdd(p1, p1, n, edgeShapeStyle.offset);
+                vec2.scaleAndAdd(p2, p2, n, edgeShapeStyle.offset);
+            } else if (edge.shape.type === 'bezier-curve') {
+                edgeShapeStyle.cpX1 = (p1[0] + p2[0]) / 2 - (p2[1] - p1[1]) / 4;
+                edgeShapeStyle.cpY1 = (p1[1] + p2[1]) / 2 - (p1[0] - p2[0]) / 4;
             }
+            edgeShapeStyle.xStart = p1[0];
+            edgeShapeStyle.yStart = p1[1];
+            edgeShapeStyle.xEnd = p2[0];
+            edgeShapeStyle.yEnd = p2[1];
             edge.shape.modSelf();
             if (edge.shape._symbolShape) {
                 var symbolShape = edge.shape._symbolShape;
-                vec2.copy(symbolShape.position, targetShape.position);
-                vec2.sub(v, sourceShape.position, targetShape.position);
-                vec2.normalize(v, v);
+                vec2.copy(symbolShape.position, p2);
                 vec2.scaleAndAdd(symbolShape.position, symbolShape.position, v, targetShape.style.width / 2 + 2);
                 var angle = Math.atan2(v[1], v[0]);
                 symbolShape.rotation = Math.PI / 2 - angle;
@@ -514,37 +643,26 @@ Force.prototype = {
     },
     _syncNodePositions: function () {
         var graph = this._graph;
-        // var delta = 0;
         for (var i = 0; i < graph.nodes.length; i++) {
             var gNode = graph.nodes[i];
             var position = gNode.layout.position;
             var node = gNode.data;
             var shape = gNode.shape;
-            // delta += vec2.len(shape.position, position);
-            if (shape.fixed || node.fixX && node.fixY) {
-                vec2.copy(position, shape.position);
-            } else if (node.fixX) {
-                position[0] = shape.position[0];
-                shape.position[1] = position[1];
-            } else if (node.fixY) {
-                position[1] = shape.position[1];
-                shape.position[0] = position[0];
-            } else if (isNaN(node.fixX - 0) == false && isNaN(node.fixY - 0) == false) {
-                shape.position[0] += (position[0] - shape.position[0]) * node.fixX;
-                position[0] = shape.position[0];
-                shape.position[1] += (position[1] - shape.position[1]) * node.fixY;
-                position[1] = shape.position[1];
-            } else if (isNaN(node.fixX - 0) == false) {
-                shape.position[0] += (position[0] - shape.position[0]) * node.fixX;
-                position[0] = shape.position[0];
-                shape.position[1] = position[1];
-            } else if (isNaN(node.fixY - 0) == false) {
-                shape.position[1] += (position[1] - shape.position[1]) * node.fixY;
-                position[1] = shape.position[1];
-                shape.position[0] = position[0];
-            } else {
-                vec2.copy(shape.position, position);
+            var fixX = shape.fixed || node.fixX;
+            var fixY = shape.fixed || node.fixY;
+            if (fixX === true) {
+                fixX = 1;
+            } else if (isNaN(fixX)) {
+                fixX = 0;
             }
+            if (fixY === true) {
+                fixY = 1;
+            } else if (isNaN(fixY)) {
+                fixY = 0;
+            }
+            shape.position[0] += (position[0] - shape.position[0]) * (1 - fixX);
+            shape.position[1] += (position[1] - shape.position[1]) * (1 - fixY);
+            vec2.copy(position, shape.position);
             var nodeName = node.name;
             if (nodeName) {
                 var gPos = this.__nodePositionMap[nodeName];
@@ -554,9 +672,7 @@ Force.prototype = {
                 vec2.copy(gPos, position);
             }
             shape.modSelf();
-        }    // if (delta < 1) {  // All shape stopped moving
-             // this._layout.temperature = 0;
-             // }
+        }
     },
     _step: function (e) {
         this._syncNodePositions();
@@ -663,7 +779,6 @@ function _randomInSquare(x, y, size) {
     return v;
 }
 zrUtil.inherits(Force, ChartBase);
-zrUtil.inherits(Force, ComponentBase);
 // 图表注册
 require('../chart').define('force', Force);
 module.exports = Force || module.exports;;
