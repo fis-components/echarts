@@ -1,9 +1,0 @@
-{
-    "repos": "https://github.com/ecomfe/echarts.git",
-    "version": "2.1.10",
-    "name": "echarts",
-    "main": "echarts.js",
-    "dependencies": {
-        "zrender": "*"
-    }
-}
