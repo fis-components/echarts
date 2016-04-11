@@ -1,10 +1,13 @@
 {
     "repos": "https://github.com/ecomfe/echarts.git",
     "name": "echarts",
-    "main": "echarts.js",
+    "main": "index",
     "dependencies": {
-        "zrender": "*"
+        "zrender": "^3.0.7"
     },
-    "umd2commonjs": true,
-    "version": "3.0.2"
+    "umd2commonjs": null,
+    "version": "3.1.6",
+    "description": "A powerful charting and visualization library for browser",
+    "tag": "master",
+    "reposType": "npm"
 }
