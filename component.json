@@ -6,7 +6,7 @@
         "zrender": "^3.1.1"
     },
     "umd2commonjs": null,
-    "version": "3.2.1",
+    "version": "3.2.2",
     "description": "A powerful charting and visualization library for browser",
     "tag": "master",
     "reposType": "npm"
